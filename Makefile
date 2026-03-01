@@ -3,9 +3,26 @@ SHELL := /bin/bash
 .SHELLFLAGS := -euo pipefail -c
 
 PY := python3
-HOST ?= localhost
 
-# ---------- Files (edit if needed) ----------
+# ===================== VM CONFIG (from your instance list) =====================
+PROJECT ?= lab6-488919
+DIR ?= ~/lab6-rest-vs-grpc
+
+ZONE_CENTRAL := us-central1-a
+ZONE_EAST    := us-east1-b
+
+# VMs
+VM_LOCAL          := lab6-local
+VM_SAME_SERVER    := lab6-samezone-server
+VM_SAME_CLIENT    := lab6-samezone-client
+VM_DIFF_SERVER    := lab6-diffregion-server
+VM_DIFF_CLIENT    := lab6-diffregion-client
+
+# Internal IPs (use internal IPs for measurements)
+IP_SAME_SERVER := $(shell gcloud compute instances describe $(VM_SAME_SERVER) --zone $(ZONE_CENTRAL) --format='get(networkInterfaces[0].networkIP)')
+IP_DIFF_SERVER := $(shell gcloud compute instances describe $(VM_DIFF_SERVER) --zone $(ZONE_CENTRAL) --format='get(networkInterfaces[0].networkIP)')
+
+# ===================== FILES =====================
 IMAGE_FILE := Flatirons_Winter_Sunrise_edit_2.jpg
 
 REST_SERVER := rest-server-final.py
@@ -16,185 +33,178 @@ GRPC_SERVER := grpc-server-final.py
 GRPC_CLIENT := grpc-client-final.py
 GRPC_PORT   := 50051
 
-# ---------- Outputs ----------
+# Outputs
 REST_MD := SOLUTION-rest.md
 GRPC_MD := SOLUTION-grpc.md
 
-REST_PID := .rest_server.pid
-GRPC_PID := .grpc_server.pid
-REST_LOG := .rest_server.log
-GRPC_LOG := .grpc_server.log
-
-# ---------- Repetitions (override like: make all REPS_ADD=1000) ----------
+# Reps
 REPS_ADD  ?= 1000
 REPS_IMG  ?= 100
 REPS_DOT  ?= 1000
 REPS_JSON ?= 100
-
-# ---------- Helpers ----------
-define require_file
-	@if [[ ! -f "$(1)" ]]; then \
-		echo "ERROR: Missing required file: $(1)"; \
-		exit 1; \
-	fi
-endef
-
-define require_cmd
-	@command -v "$(1)" >/dev/null 2>&1 || { echo "ERROR: missing command: $(1)"; exit 1; }
-endef
 
 # Extract numeric ms from output line: "Took <num> ms per operation"
 define extract_ms
 	awk '/Took/ {print $$2}' | tail -n 1
 endef
 
-.PHONY: all rest grpc clean rest-clean grpc-clean rest-start rest-stop grpc-start grpc-stop check
+# ===================== HELPERS =====================
+define require_cmd
+	@command -v "$(1)" >/dev/null 2>&1 || { echo "ERROR: missing command: $(1)"; exit 1; }
+endef
 
+.PHONY: check
 check:
-	$(call require_cmd,curl)
-	$(call require_cmd,$(PY))
-	$(call require_file,$(IMAGE_FILE))
-	$(call require_file,$(REST_SERVER))
-	$(call require_file,$(REST_CLIENT))
-	$(call require_file,$(GRPC_SERVER))
-	$(call require_file,$(GRPC_CLIENT))
-	@echo "OK: required files/commands found."
+	$(call require_cmd,gcloud)
+	$(call require_cmd,awk)
+	$(call require_cmd,paste)
+	@echo "OK: local tools found."
+	@gcloud config set project $(PROJECT) >/dev/null
 
-# ===================== REST =====================
+# ssh helper: $(call ssh,VM,ZONE,'command...')
+define ssh
+	gcloud compute ssh $(1) --zone $(2) --quiet --command $(3)
+endef
 
-rest-start:
-	@echo "Starting REST server..."
-	@nohup $(PY) $(REST_SERVER) >$(REST_LOG) 2>&1 & echo $$! > $(REST_PID)
-	@for i in {1..60}; do \
-		if curl -s "http://$(HOST):$(REST_PORT)/api/add/1/1" >/dev/null 2>&1; then \
-			echo "REST server is up."; \
-			exit 0; \
-		fi; \
-		sleep 0.1; \
-	done; \
-	echo "ERROR: REST server did not start. Check $(REST_LOG)"; \
-	exit 1
+# scp helper: $(call scp_from,VM,ZONE,remote_path,local_path)
+define scp_from
+	gcloud compute scp $(1):$(3) $(4) --zone $(2) --quiet
+endef
 
-rest-stop:
-	@if [[ -f "$(REST_PID)" ]]; then \
-		PID="$$(cat $(REST_PID) || true)"; \
-		if [[ -n "$$PID" ]] && kill -0 "$$PID" >/dev/null 2>&1; then \
-			echo "Stopping REST server (PID $$PID)"; \
-			kill "$$PID" >/dev/null 2>&1 || true; \
-			sleep 0.2; \
-		fi; \
-		rm -f "$(REST_PID)"; \
-	else \
-		echo "REST PID file not found (server not tracked)."; \
-	fi
+# Start servers on a given VM (writes pid files inside DIR)
+define start_rest_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(REST_SERVER) > .rest_server.log 2>&1 & echo $$! > .rest_server.pid'")
+endef
+
+define start_grpc_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 & echo $$! > .grpc_server.pid'")
+endef
+
+define stop_rest_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && if [[ -f .rest_server.pid ]]; then kill $$(cat .rest_server.pid) 2>/dev/null || true; rm -f .rest_server.pid; fi'")
+endef
+
+define stop_grpc_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && if [[ -f .grpc_server.pid ]]; then kill $$(cat .grpc_server.pid) 2>/dev/null || true; rm -f .grpc_server.pid; fi'")
+endef
+
+# Run client benchmarks on a VM and save TSV there:
+# TSV format: method<TAB>ms
+define run_rest_tsv_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && \
+	  ADD_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) add $(REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
+	  RAW_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) rawImage $(REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
+	  DOT_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) dotProduct $(REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
+	  JSON_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) jsonImage $(REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
+	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+endef
+
+define run_grpc_tsv_on
+	$(call ssh,$(1),$(2),"'cd $(DIR) && \
+	  ADD_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) add $(REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
+	  RAW_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) rawImage $(REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
+	  DOT_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) dotProduct $(REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
+	  JSON_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) jsonImage $(REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
+	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+endef
+
+# ===================== LOCAL TARGETS  =====================
+.PHONY: rest grpc all clean rest-clean grpc-clean
 
 rest:
-	@$(MAKE) check
-	@$(MAKE) rest-start
-	@echo "Running REST benchmarks..."
-	@ADD_OUT="$$( $(PY) $(REST_CLIENT) $(HOST) add $(REPS_ADD) )"; \
-	ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
-	RAW_OUT="$$( $(PY) $(REST_CLIENT) $(HOST) rawImage $(REPS_IMG) )"; \
-	RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
-	DOT_OUT="$$( $(PY) $(REST_CLIENT) $(HOST) dotProduct $(REPS_DOT) )"; \
-	DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
-	JSON_OUT="$$( $(PY) $(REST_CLIENT) $(HOST) jsonImage $(REPS_JSON) )"; \
-	JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
-	TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
-	{ \
-		echo "# REST Timing Results"; \
-		echo ""; \
-		echo "- Host: $(HOST)"; \
-		echo "- Port: $(REST_PORT)"; \
-		echo "- Timestamp: $$TS"; \
-		echo ""; \
-		echo "## Average latency (ms/op)"; \
-		echo ""; \
-		echo "| Method | Reps | ms/op |"; \
-		echo "|---|---:|---:|"; \
-		echo "| REST add | $(REPS_ADD) | $$ADD_MS |"; \
-		echo "| REST rawimg | $(REPS_IMG) | $$RAW_MS |"; \
-		echo "| REST dotproduct | $(REPS_DOT) | $$DOT_MS |"; \
-		echo "| REST jsonimg | $(REPS_JSON) | $$JSON_MS |"; \
-		echo ""; \
-	} > "$(REST_MD)"
-	@echo "Wrote $(REST_MD)"
-	@$(MAKE) rest-stop
-
-rest-clean: rest-stop
-	@rm -f "$(REST_LOG)"
-	@echo "Cleaned REST artifacts."
-
-# ===================== gRPC =====================
-
-grpc-start:
-	@echo "Starting gRPC server..."
-	@nohup $(PY) $(GRPC_SERVER) >$(GRPC_LOG) 2>&1 & echo $$! > $(GRPC_PID)
-	@# Wait for port to open by attempting a lightweight client call (add 1 rep)
-	@for i in {1..60}; do \
-		if $(PY) $(GRPC_CLIENT) $(HOST) add 1 >/dev/null 2>&1; then \
-			echo "gRPC server is up."; \
-			exit 0; \
-		fi; \
-		sleep 0.1; \
-	done; \
-	echo "ERROR: gRPC server did not start. Check $(GRPC_LOG)"; \
-	exit 1
-
-grpc-stop:
-	@if [[ -f "$(GRPC_PID)" ]]; then \
-		PID="$$(cat $(GRPC_PID) || true)"; \
-		if [[ -n "$$PID" ]] && kill -0 "$$PID" >/dev/null 2>&1; then \
-			echo "Stopping gRPC server (PID $$PID)"; \
-			kill "$$PID" >/dev/null 2>&1 || true; \
-			sleep 0.2; \
-		fi; \
-		rm -f "$(GRPC_PID)"; \
-	else \
-		echo "gRPC PID file not found (server not tracked)."; \
-	fi
+	@echo "Tip: use rest3 for Local/Same-Zone/Diff-Region tables. This target only does local on current machine."
 
 grpc:
-	@$(MAKE) check
-	@$(MAKE) grpc-start
-	@echo "Running gRPC benchmarks..."
-	@ADD_OUT="$$( $(PY) $(GRPC_CLIENT) $(HOST) add $(REPS_ADD) )"; \
-	ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
-	RAW_OUT="$$( $(PY) $(GRPC_CLIENT) $(HOST) rawImage $(REPS_IMG) )"; \
-	RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
-	DOT_OUT="$$( $(PY) $(GRPC_CLIENT) $(HOST) dotProduct $(REPS_DOT) )"; \
-	DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
-	JSON_OUT="$$( $(PY) $(GRPC_CLIENT) $(HOST) jsonImage $(REPS_JSON) )"; \
-	JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
-	TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
-	{ \
-		echo "# gRPC Timing Results"; \
-		echo ""; \
-		echo "- Host: $(HOST)"; \
-		echo "- Port: $(GRPC_PORT)"; \
-		echo "- Timestamp: $$TS"; \
-		echo ""; \
-		echo "## Average latency (ms/op)"; \
-		echo ""; \
-		echo "| Method | Reps | ms/op |"; \
-		echo "|---|---:|---:|"; \
-		echo "| gRPC add | $(REPS_ADD) | $$ADD_MS |"; \
-		echo "| gRPC rawimg | $(REPS_IMG) | $$RAW_MS |"; \
-		echo "| gRPC dotproduct | $(REPS_DOT) | $$DOT_MS |"; \
-		echo "| gRPC jsonimg | $(REPS_JSON) | $$JSON_MS |"; \
-		echo ""; \
-	} > "$(GRPC_MD)"
-	@echo "Wrote $(GRPC_MD)"
-	@$(MAKE) grpc-stop
-
-grpc-clean: grpc-stop
-	@rm -f "$(GRPC_LOG)"
-	@echo "Cleaned gRPC artifacts."
-
-# ===================== Combined =====================
+	@echo "Tip: use grpc3 for Local/Same-Zone/Diff-Region tables. This target only does local on current machine."
 
 all:
 	@$(MAKE) rest
 	@$(MAKE) grpc
 
-clean: rest-clean grpc-clean
+clean:
+	@rm -f .rest_local.tsv .rest_same.tsv .rest_diff.tsv .grpc_local.tsv .grpc_same.tsv .grpc_diff.tsv
+	@echo "Cleaned local result TSV files."
+
+# ===================== ORCHESTRATED 3-COLUMN RESULTS =====================
+.PHONY: servers-up servers-down rest3 grpc3 all3
+
+servers-up: check
+	@echo "Starting servers on VMs..."
+	@# Local VM runs both servers for Local tests
+	$(call start_rest_on,$(VM_LOCAL),$(ZONE_CENTRAL))
+	$(call start_grpc_on,$(VM_LOCAL),$(ZONE_CENTRAL))
+	@# Same-zone server VM
+	$(call start_rest_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
+	$(call start_grpc_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
+	@# Diff-region server VM (server is still in central)
+	$(call start_rest_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	$(call start_grpc_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	@echo "Servers started."
+
+servers-down: check
+	@echo "Stopping servers on VMs..."
+	$(call stop_rest_on,$(VM_LOCAL),$(ZONE_CENTRAL))
+	$(call stop_grpc_on,$(VM_LOCAL),$(ZONE_CENTRAL))
+	$(call stop_rest_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
+	$(call stop_grpc_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
+	$(call stop_rest_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	$(call stop_grpc_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	@echo "Servers stopped."
+
+rest3: check servers-up
+	@echo "Collecting REST timings..."
+	@# Local column: run client on lab6-local against localhost
+	$(call run_rest_tsv_on,$(VM_LOCAL),$(ZONE_CENTRAL),localhost,.rest_local.tsv)
+	@# Same-zone column: run client on samezone-client against samezone-server internal IP
+	$(call run_rest_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.rest_same.tsv)
+	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
+	$(call run_rest_tsv_on,$(VM_DIFF_CLIENT),$(ZONE_EAST),$(IP_DIFF_SERVER),.rest_diff.tsv)
+
+	@echo "Writing $(REST_MD)..."
+	@TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
+	{ \
+	  echo "# REST Timing Results"; \
+	  echo ""; \
+	  echo "- Timestamp: $$TS"; \
+	  echo "- Reps: add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON)"; \
+	  echo ""; \
+	  echo "## Average latency (ms/op)"; \
+	  echo ""; \
+	  echo "| Method | Local | Same-Zone | Different Region |"; \
+	  echo "|---|---:|---:|---:|"; \
+	  paste .rest_local.tsv .rest_same.tsv .rest_diff.tsv | awk -F'\t' '{printf("| REST %s | %s | %s | %s |\n", $$1, $$2, $$4, $$6)}'; \
+	  echo ""; \
+	} > $(REST_MD)
+	@echo "Wrote $(REST_MD)"
+	@$(MAKE) servers-down
+
+grpc3: check servers-up
+	@echo "Collecting gRPC timings..."
+	@# Local column: run client on lab6-local against localhost
+	$(call run_grpc_tsv_on,$(VM_LOCAL),$(ZONE_CENTRAL),localhost,.grpc_local.tsv)
+	@# Same-zone column: run client on samezone-client against samezone-server internal IP
+	$(call run_grpc_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.grpc_same.tsv)
+	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
+	$(call run_grpc_tsv_on,$(VM_DIFF_CLIENT),$(ZONE_EAST),$(IP_DIFF_SERVER),.grpc_diff.tsv)
+
+	@echo "Writing $(GRPC_MD)..."
+	@TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
+	{ \
+	  echo "# gRPC Timing Results"; \
+	  echo ""; \
+	  echo "- Timestamp: $$TS"; \
+	  echo "- Reps: add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON)"; \
+	  echo ""; \
+	  echo "## Average latency (ms/op)"; \
+	  echo ""; \
+	  echo "| Method | Local | Same-Zone | Different Region |"; \
+	  echo "|---|---:|---:|---:|"; \
+	  paste .grpc_local.tsv .grpc_same.tsv .grpc_diff.tsv | awk -F'\t' '{printf("| gRPC %s | %s | %s | %s |\n", $$1, $$2, $$4, $$6)}'; \
+	  echo ""; \
+	} > $(GRPC_MD)
+	@echo "Wrote $(GRPC_MD)"
+	@$(MAKE) servers-down
+
+all3:
+	@$(MAKE) rest3
+	@$(MAKE) grpc3
