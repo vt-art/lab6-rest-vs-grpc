@@ -9,7 +9,7 @@ PROJECT ?= lab6-488919
 DIR ?= ~/lab6-rest-vs-grpc
 
 ZONE_CENTRAL := us-central1-a
-ZONE_EAST    := us-east1-b
+ZONE_EU      := europe-west3-a
 
 # VMs
 VM_LOCAL          := lab6-local
@@ -20,7 +20,7 @@ VM_DIFF_CLIENT    := lab6-diffregion-client
 
 # Internal IPs (use internal IPs for measurements)
 IP_SAME_SERVER := $(shell gcloud compute instances describe $(VM_SAME_SERVER) --zone $(ZONE_CENTRAL) --format='get(networkInterfaces[0].networkIP)')
-IP_DIFF_SERVER := $(shell gcloud compute instances describe $(VM_DIFF_SERVER) --zone $(ZONE_CENTRAL) --format='get(networkInterfaces[0].networkIP)')
+IP_DIFF_SERVER := $(shell gcloud compute instances describe $(VM_DIFF_SERVER) --zone $(ZONE_EU) --format='get(networkInterfaces[0].networkIP)')
 
 # ===================== FILES =====================
 IMAGE_FILE := Flatirons_Winter_Sunrise_edit_2.jpg
@@ -39,9 +39,15 @@ GRPC_MD := SOLUTION-grpc.md
 
 # Reps
 REPS_ADD  ?= 1000
-REPS_IMG  ?= 100
+REPS_IMG  ?= 1000
 REPS_DOT  ?= 1000
-REPS_JSON ?= 100
+REPS_JSON ?= 1000
+
+# Reps for different region analysis
+EU_REPS_ADD  ?= 100
+EU_REPS_IMG  ?= 100
+EU_REPS_DOT  ?= 100
+EU_REPS_JSON ?= 100
 
 # Extract numeric ms from output line: "Took <num> ms per operation"
 define extract_ms
@@ -108,6 +114,24 @@ define run_grpc_tsv_on
 	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
 endef
 
+define run_rest_tsv_on_eu
+	$(call ssh,$(1),$(2),"'cd $(DIR) && \
+	  ADD_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) add $(EU_REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
+	  RAW_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) rawImage $(EU_REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
+	  DOT_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
+	  JSON_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
+	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+endef
+
+define run_grpc_tsv_on_eu
+	$(call ssh,$(1),$(2),"'cd $(DIR) && \
+	  ADD_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) add $(EU_REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
+	  RAW_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) rawImage $(EU_REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
+	  DOT_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
+	  JSON_OUT=\"$$( $(PY) $(GRPC_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
+	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+endef
+
 # ===================== LOCAL TARGETS  =====================
 .PHONY: rest grpc all clean rest-clean grpc-clean
 
@@ -136,9 +160,9 @@ servers-up: check
 	@# Same-zone server VM
 	$(call start_rest_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
 	$(call start_grpc_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
-	@# Diff-region server VM (server is still in central)
-	$(call start_rest_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
-	$(call start_grpc_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	@# Diff-region server VM 
+	$(call start_rest_on,$(VM_DIFF_SERVER),$(ZONE_EU))
+	$(call start_grpc_on,$(VM_DIFF_SERVER),$(ZONE_EU))
 	@echo "Servers started."
 
 servers-down: check
@@ -147,8 +171,8 @@ servers-down: check
 	$(call stop_grpc_on,$(VM_LOCAL),$(ZONE_CENTRAL))
 	$(call stop_rest_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
 	$(call stop_grpc_on,$(VM_SAME_SERVER),$(ZONE_CENTRAL))
-	$(call stop_rest_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
-	$(call stop_grpc_on,$(VM_DIFF_SERVER),$(ZONE_CENTRAL))
+	$(call stop_rest_on,$(VM_DIFF_SERVER),$(ZONE_EU))
+	$(call stop_grpc_on,$(VM_DIFF_SERVER),$(ZONE_EU))
 	@echo "Servers stopped."
 
 rest3: check servers-up
@@ -158,7 +182,7 @@ rest3: check servers-up
 	@# Same-zone column: run client on samezone-client against samezone-server internal IP
 	$(call run_rest_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.rest_same.tsv)
 	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
-	$(call run_rest_tsv_on,$(VM_DIFF_CLIENT),$(ZONE_EAST),$(IP_DIFF_SERVER),.rest_diff.tsv)
+	$(call run_rest_tsv_on_eu,$(VM_DIFF_CLIENT),$(ZONE_CENTRAL),$(IP_DIFF_SERVER),.rest_diff.tsv)
 
 	@echo "Writing $(REST_MD)..."
 	@TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
@@ -166,7 +190,7 @@ rest3: check servers-up
 	  echo "# REST Timing Results"; \
 	  echo ""; \
 	  echo "- Timestamp: $$TS"; \
-	  echo "- Reps: add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON)"; \
+	  echo "- Reps: Local/Same-Zone add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON); Different-Region add=$(EU_REPS_ADD), dotproduct=$(EU_REPS_DOT), rawimg=$(EU_REPS_IMG), jsonimg=$(EU_REPS_JSON)"; \
 	  echo ""; \
 	  echo "## Average latency (ms/op)"; \
 	  echo ""; \
@@ -185,7 +209,7 @@ grpc3: check servers-up
 	@# Same-zone column: run client on samezone-client against samezone-server internal IP
 	$(call run_grpc_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.grpc_same.tsv)
 	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
-	$(call run_grpc_tsv_on,$(VM_DIFF_CLIENT),$(ZONE_EAST),$(IP_DIFF_SERVER),.grpc_diff.tsv)
+	$(call run_grpc_tsv_on_eu,$(VM_DIFF_CLIENT),$(ZONE_CENTRAL),$(IP_DIFF_SERVER),.grpc_diff.tsv)
 
 	@echo "Writing $(GRPC_MD)..."
 	@TS="$$(date -u '+%Y-%m-%d %H:%M:%S UTC')"; \
@@ -193,7 +217,7 @@ grpc3: check servers-up
 	  echo "# gRPC Timing Results"; \
 	  echo ""; \
 	  echo "- Timestamp: $$TS"; \
-	  echo "- Reps: add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON)"; \
+	  echo "- Reps: Local/Same-Zone add=$(REPS_ADD), dotproduct=$(REPS_DOT), rawimg=$(REPS_IMG), jsonimg=$(REPS_JSON); Different-Region add=$(EU_REPS_ADD), dotproduct=$(EU_REPS_DOT), rawimg=$(EU_REPS_IMG), jsonimg=$(EU_REPS_JSON)"; \
 	  echo ""; \
 	  echo "## Average latency (ms/op)"; \
 	  echo ""; \
