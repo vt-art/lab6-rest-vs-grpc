@@ -9,7 +9,7 @@ HOST ?= localhost
 IMAGE_FILE := Flatirons_Winter_Sunrise_edit_2.jpg
 
 REST_SERVER := rest-server-final.py
-REST_CLIENT := client-server-final.py
+REST_CLIENT := rest-client-final.py
 REST_PORT   := 5000
 
 GRPC_SERVER := grpc-server-final.py
