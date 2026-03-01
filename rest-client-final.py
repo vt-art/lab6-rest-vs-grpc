@@ -126,13 +126,13 @@ elif cmd == 'add':
 elif cmd == 'jsonImage':
     start = time.perf_counter()
     for x in range(reps):
-        doJsonImage(addr, debug=True)
+        doJsonImage(addr, debug=False)
     delta = ((time.perf_counter() - start)/reps)*1000
     print("Took", delta, "ms per operation")
 elif cmd == 'dotProduct':
     start = time.perf_counter()
     for x in range(reps):
-        doDotProduct(addr, debug=True)
+        doDotProduct(addr, debug=False)
     delta = ((time.perf_counter() - start)/reps)*1000
     print("Took", delta, "ms per operation")
 else:
