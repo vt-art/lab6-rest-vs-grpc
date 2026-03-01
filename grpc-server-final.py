@@ -64,7 +64,7 @@ class gRPCService(grpc_service_pb2_grpc.gRPCServiceServicer):
 # REST uses port 5000. gRPC typically uses 50051
 def serve(host="0.0.0.0", port=50051):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    grpc_service_pb2_grpc.add_gRPCServiceServicer_to_server(gRPCServiceServicer(), server)
+    grpc_service_pb2_grpc.add_gRPCServiceServicer_to_server(gRPCService(), server)
 
     server.add_insecure_port(f"{host}:{port}")
     server.start()
