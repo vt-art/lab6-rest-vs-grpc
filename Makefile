@@ -71,21 +71,21 @@ define scp_from
 	gcloud compute scp $(1):$(3) $(4) --zone $(2) --quiet
 endef
 
-# Start servers on a given VM (writes pid files inside DIR)
+# Start/stop servers on a VM without PID files
 define start_rest_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(REST_SERVER) > .rest_server.log 2>&1 & echo $$! > .rest_server.pid'")
+	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(REST_SERVER) > .rest_server.log 2>&1 < /dev/null & disown || true'")
 endef
 
 define start_grpc_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 & echo $$! > .grpc_server.pid'")
+	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 < /dev/null & disown || true'")
 endef
 
 define stop_rest_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && if [[ -f .rest_server.pid ]]; then kill $$(cat .rest_server.pid) 2>/dev/null || true; rm -f .rest_server.pid; fi'")
+	$(call ssh,$(1),$(2),"'pkill -f \"$(REST_SERVER)\" 2>/dev/null || true'")
 endef
 
 define stop_grpc_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && if [[ -f .grpc_server.pid ]]; then kill $$(cat .grpc_server.pid) 2>/dev/null || true; rm -f .grpc_server.pid; fi'")
+	$(call ssh,$(1),$(2),"'pkill -f \"$(GRPC_SERVER)\" 2>/dev/null || true'")
 endef
 
 # Run client benchmarks on a VM and save TSV there:

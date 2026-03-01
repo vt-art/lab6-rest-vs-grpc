@@ -119,7 +119,7 @@ def main() -> int:
 
     # Free e2-micro is only available in us-west1 (Oregon), us-central1 (Iowa), us-east1 (South Carolina)    
     parser.add_argument("--zone1", default="us-central1-a", help="Zone for local + same-zone + diff-server (default us-central1-a)")
-    parser.add_argument("--zone2", default="us-east1-b", help="Zone for diff-region client (default us-east1-b)")
+    parser.add_argument("--zone2", default="europe-west3-a", help="Zone for diff-region client (default europe-west3-a)")
     parser.add_argument("--machine-type", default="e2-micro", help="Machine type (default e2-micro)")
     parser.add_argument("--image-family", default="debian-12", help="Image family (default debian-12)")
     parser.add_argument("--image-project", default="debian-cloud", help="Image project (default debian-cloud)")
@@ -192,7 +192,7 @@ def main() -> int:
     )
     create_instance_if_missing(
         vm_diff_server,
-        zone=args.zone1,
+        zone=args.zone2,
         machine_type=args.machine_type,
         image_family=args.image_family,
         image_project=args.image_project,
@@ -200,7 +200,7 @@ def main() -> int:
     )
     create_instance_if_missing(
         vm_diff_client,
-        zone=args.zone2,
+        zone=args.zone1,
         machine_type=args.machine_type,
         image_family=args.image_family,
         image_project=args.image_project,
