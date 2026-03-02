@@ -90,6 +90,7 @@ def exists_instance(name: str, zone: str) -> bool:
     return cp.returncode == 0
 
 
+
 def create_instance_if_missing(
     name: str,
     *,
@@ -126,9 +127,16 @@ def ssh(vm: str, zone: str, command: str) -> None:
     run(["gcloud", "compute", "ssh", vm, f"--zone={zone}", "--quiet", "--command", command])
 
 
-def scp_dir(local_dir: str, vm: str, zone: str, remote_parent: str = "~") -> None:
-    # Copy local_dir into remote_parent; results in ~/basename(local_dir)
-    run(["gcloud", "compute", "scp", "--recurse", local_dir, f"{vm}:{remote_parent}", f"--zone={zone}", "--quiet"])
+# Copies the folder to the vm without copying the .git and .venv 
+def copy_lab_dir_tar(lab_dir: str, vm: str, zone: str, remote_dir: str = "$HOME/lab6-rest-vs-grpc") -> None:
+    # Create tar stream excluding .git and .venv, extract on remote
+    cmd = (
+        f"mkdir -p {remote_dir} && "
+        f"tar --exclude='.git' --exclude='.venv' --exclude='__pycache__' "
+        f"-C {shlex.quote(lab_dir)} -cf - . | "
+        f"tar -C {remote_dir} -xf -"
+    )
+    ssh(vm, zone, cmd)
 
 
 @dataclass(frozen=True)
@@ -231,7 +239,7 @@ def main() -> int:
         # Copy code to each VM
         for vm in vms:
             print(f"\n--- Copying {lab_dir} -> {vm.name}:{vm.zone} ---")
-            scp_dir(lab_dir, vm.name, vm.zone, remote_parent="~")
+            copy_lab_dir_tar(lab_dir, vm.name, vm.zone, remote_dir="$HOME/lab6-rest-vs-grpc")
 
         # Install dependencies and run protoc on each VM
 
