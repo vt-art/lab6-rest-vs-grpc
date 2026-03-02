@@ -11,7 +11,7 @@
 # And create three firewall rules as follows: 
 #   - allow-lab6-rest-5000
 #   - allow-lab6-grpc-50051
-#   - allow-lab6-icm
+#   - allow-lab6-icmp
 
 """
 Create VMs + firewall rules AND configure them for the REST vs gRPC lab 6.
@@ -233,27 +233,43 @@ def main() -> int:
             print(f"\n--- Copying {lab_dir} -> {vm.name}:{vm.zone} ---")
             scp_dir(lab_dir, vm.name, vm.zone, remote_parent="~")
 
-        # Install deps and run protoc on each VM
-        # We install on all VMs for simplicity (clients also need grpcio/requests).
+        # Install dependencies and run protoc on each VM
+
+        # Use a fixed remote directory name to match your Makefile expectations
+        remote_lab = "$HOME/lab6-rest-vs-grpc"
+
+        # Install deps using python -m pip (more reliable than pip3)
         install_cmd = (
-            "sudo apt-get update -y && "
-            "sudo apt-get install -y python3-pip && "
-            "pip3 install --user flask jsonpickle pillow requests grpcio grpcio-tools"
+            "set -euo pipefail; "
+            "sudo apt-get update -y; "
+            "sudo apt-get install -y python3-pip; "
+            "python3 -m pip install --user --upgrade pip setuptools wheel; "
+            # Install everything needed for REST + gRPC clients/servers
+            "python3 -m pip install --user flask jsonpickle pillow requests grpcio grpcio-tools"
         )
 
-        # Remote lab directory name (same basename)
-        remote_lab = f"~/{os.path.basename(lab_dir)}"
+        # Verify imports right away; if this fails, the script should fail
+        verify_cmd = (
+            "set -euo pipefail; "
+            "python3 -c \"import flask, jsonpickle, requests; from PIL import Image; import grpc; import grpc_tools; print('deps ok')\""
+        )
+
+        # Generate protobuf stubs (also verify grpc_tools is available)
         protoc_cmd = (
-            f"cd {remote_lab} && "
-            "python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. grpc_service.proto"
+            f"set -euo pipefail; "
+            f"cd {remote_lab}; "
+            "python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. grpc_service.proto; "
+            "test -f grpc_service_pb2.py -a -f grpc_service_pb2_grpc.py"
         )
 
         for vm in vms:
             print(f"\n--- Installing deps on {vm.name} ({vm.zone}) ---")
             ssh(vm.name, vm.zone, install_cmd)
+            print(f"--- Verifying deps on {vm.name} ({vm.zone}) ---")
+            ssh(vm.name, vm.zone, verify_cmd)
             print(f"--- Running protoc on {vm.name} ({vm.zone}) ---")
             ssh(vm.name, vm.zone, protoc_cmd)
-
+    
     print("\n=== Instances (name, zone, internal/external IP, tags) ===")
     run(
         [
