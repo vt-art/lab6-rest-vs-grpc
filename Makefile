@@ -8,7 +8,7 @@ PY := python3
 # output timing files for local, samezone, different zone
 # ===================== VM CONFIG =====================
 PROJECT ?= lab6-488919
-DIR ?= ~/lab6-rest-vs-grpc
+DIR ?= $$HOME/lab6-rest-vs-grpc
 
 ZONE_CENTRAL := us-central1-a
 ZONE_EU      := europe-west3-a
