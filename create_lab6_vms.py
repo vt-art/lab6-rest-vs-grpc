@@ -1,39 +1,51 @@
 #!/usr/bin/env python3
+# This program creates VMs + firewall rules for the REST vs gRPC lab 6.
+# It also configures the VMs with a copy of the lab6 materials,
+# the python package installations and generates the protobuf stubs. 
+# Creates five vms as follows:
+#   - vm_local
+#   - vm_same_server
+#   - vm_same_client
+#   - vm_diff_server
+#   - vm_diff_client
+# And create three firewall rules as follows: 
+#   - allow-lab6-rest-5000
+#   - allow-lab6-grpc-50051
+#   - allow-lab6-icm
+
 """
-Create VMs + firewall rules for a REST vs gRPC latency lab.
+Create VMs + firewall rules AND configure them for the REST vs gRPC lab 6.
 
-Requires:
-  - gcloud CLI installed (Cloud Shell already has it)
-  - gcloud auth/login done
-  - a project set (or pass --project)
+Configuration (AKA bootstrapping) steps (per VM):
+  - Copy local lab directory (default: ~/lab6-rest-vs-grpc) to VM home dir
+  - Install Python deps via pip (user install)
+  - Generate protobuf stubs (grpc_service_pb2*.py)
 
-Example:
+Usage:
   python3 create_lab6_vms.py --project lab6-488919
+
+Notes:
+  - Designed for running from Cloud Shell.
+  - Different-region server is placed in zone2 (Frankfurt by default).
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import List, Optional
 
 
 def run(cmd: List[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
-    """Run a command and return the CompletedProcess."""
-    # Print the command 
     print("$", " ".join(shlex.quote(c) for c in cmd))
-    return subprocess.run(
-        cmd,
-        check=check,
-        text=True,
-        capture_output=capture,
-    )
+    return subprocess.run(cmd, check=check, text=True, capture_output=capture)
 
 
 def gcloud_value(args: List[str]) -> str:
-    """Return a single value from gcloud (stripped)."""
     cp = run(["gcloud", *args], capture=True)
     return (cp.stdout or "").strip()
 
@@ -74,11 +86,7 @@ def create_firewall_rule_if_missing(
 
 
 def exists_instance(name: str, zone: str) -> bool:
-    cp = run(
-        ["gcloud", "compute", "instances", "describe", name, f"--zone={zone}"],
-        check=False,
-        capture=True,
-    )
+    cp = run(["gcloud", "compute", "instances", "describe", name, f"--zone={zone}"], check=False, capture=True)
     return cp.returncode == 0
 
 
@@ -113,21 +121,56 @@ def create_instance_if_missing(
     )
 
 
+def ssh(vm: str, zone: str, command: str) -> None:
+    # Use --quiet to avoid prompts; command runs on remote
+    run(["gcloud", "compute", "ssh", vm, f"--zone={zone}", "--quiet", "--command", command])
+
+
+def scp_dir(local_dir: str, vm: str, zone: str, remote_parent: str = "~") -> None:
+    # Copy local_dir into remote_parent; results in ~/basename(local_dir)
+    run(["gcloud", "compute", "scp", "--recurse", local_dir, f"{vm}:{remote_parent}", f"--zone={zone}", "--quiet"])
+
+
+@dataclass(frozen=True)
+class VM:
+    name: str
+    zone: str
+    tags: str
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create lab VMs + firewall rules (REST vs gRPC).")
+    parser = argparse.ArgumentParser(description="Create lab VMs + firewall rules + configure code/deps.")
     parser.add_argument("--project", default=None, help="GCP project id (defaults to gcloud config project)")
 
-    # Free e2-micro is only available in us-west1 (Oregon), us-central1 (Iowa), us-east1 (South Carolina)    
-    parser.add_argument("--zone1", default="us-central1-a", help="Zone for local + same-zone + diff-server (default us-central1-a)")
-    parser.add_argument("--zone2", default="europe-west3-a", help="Zone for diff-region client (default europe-west3-a)")
+    # Assignment: zone2 should be Frankfurt for different region server
+    parser.add_argument("--zone1", default="us-central1-a", help="Home zone (default us-central1-a)")
+    parser.add_argument("--zone2", default="europe-west3-a", help="Different region zone (default europe-west3-a)")
+
     parser.add_argument("--machine-type", default="e2-micro", help="Machine type (default e2-micro)")
     parser.add_argument("--image-family", default="debian-12", help="Image family (default debian-12)")
     parser.add_argument("--image-project", default="debian-cloud", help="Image project (default debian-cloud)")
     parser.add_argument("--network", default="default", help="VPC network name (default: default)")
 
+    parser.add_argument(
+        "--lab-dir",
+        default=os.path.expanduser("~/lab6-rest-vs-grpc"),
+        help="Local path to lab directory to copy to VMs (default: ~/lab6-rest-vs-grpc)",
+    )
+
+    parser.add_argument(
+        "--skip-bootstrap",
+        action="store_true",
+        help="Only create firewall rules and VMs; do not copy code/install deps/protoc",
+    )
+
     args = parser.parse_args()
 
-    # Ensure project is set (either via flag or existing config)
+    lab_dir = os.path.abspath(os.path.expanduser(args.lab_dir))
+    if not args.skip_bootstrap and not os.path.isdir(lab_dir):
+        print(f"ERROR: lab dir not found: {lab_dir}", file=sys.stderr)
+        print("Make sure you run this from Cloud Shell where that folder exists, or pass --lab-dir PATH.", file=sys.stderr)
+        return 2
+
     project = args.project or gcloud_value(["config", "get-value", "project"])
     if not project:
         print("ERROR: No project set. Run `gcloud config set project YOUR_PROJECT` or pass --project.", file=sys.stderr)
@@ -139,11 +182,15 @@ def main() -> int:
     tag_client = "lab6-client"
 
     # VM names
-    vm_local = "lab6-local"
-    vm_same_server = "lab6-samezone-server"
-    vm_same_client = "lab6-samezone-client"
-    vm_diff_server = "lab6-diffregion-server"
-    vm_diff_client = "lab6-diffregion-client"
+    vm_local = VM("lab6-local", args.zone1, f"{tag_server},{tag_client}")
+    vm_same_server = VM("lab6-samezone-server", args.zone1, tag_server)
+    vm_same_client = VM("lab6-samezone-client", args.zone1, tag_client)
+
+    # Per assignment: diff-region SERVER in zone2 (Frankfurt), client stays in zone1 (US)
+    vm_diff_server = VM("lab6-diffregion-server", args.zone2, tag_server)
+    vm_diff_client = VM("lab6-diffregion-client", args.zone1, tag_client)
+
+    vms = [vm_local, vm_same_server, vm_same_client, vm_diff_server, vm_diff_client]
 
     print("\n=== Creating firewall rules ===")
     create_firewall_rule_if_missing(
@@ -166,46 +213,46 @@ def main() -> int:
     )
 
     print("\n=== Creating VM instances ===")
-    create_instance_if_missing(
-        vm_local,
-        zone=args.zone1,
-        machine_type=args.machine_type,
-        image_family=args.image_family,
-        image_project=args.image_project,
-        tags=f"{tag_server},{tag_client}",
-    )
-    create_instance_if_missing(
-        vm_same_server,
-        zone=args.zone1,
-        machine_type=args.machine_type,
-        image_family=args.image_family,
-        image_project=args.image_project,
-        tags=tag_server,
-    )
-    create_instance_if_missing(
-        vm_same_client,
-        zone=args.zone1,
-        machine_type=args.machine_type,
-        image_family=args.image_family,
-        image_project=args.image_project,
-        tags=tag_client,
-    )
-    create_instance_if_missing(
-        vm_diff_server,
-        zone=args.zone2,
-        machine_type=args.machine_type,
-        image_family=args.image_family,
-        image_project=args.image_project,
-        tags=tag_server,
-    )
-    create_instance_if_missing(
-        vm_diff_client,
-        zone=args.zone1,
-        machine_type=args.machine_type,
-        image_family=args.image_family,
-        image_project=args.image_project,
-        tags=tag_client,
-    )
+    for vm in vms:
+        create_instance_if_missing(
+            vm.name,
+            zone=vm.zone,
+            machine_type=args.machine_type,
+            image_family=args.image_family,
+            image_project=args.image_project,
+            tags=vm.tags,
+        )
+
+    if args.skip_bootstrap:
+        print("\nSkipping bootstrap as requested (--skip-bootstrap).")
+    else:
+        print("\n=== Bootstrapping VMs (copy code + install deps + generate protobuf) ===")
+
+        # Copy code to each VM
+        for vm in vms:
+            print(f"\n--- Copying {lab_dir} -> {vm.name}:{vm.zone} ---")
+            scp_dir(lab_dir, vm.name, vm.zone, remote_parent="~")
+
+        # Install deps and run protoc on each VM
+        # We install on all VMs for simplicity (clients also need grpcio/requests).
+        install_cmd = (
+            "sudo apt-get update -y && "
+            "sudo apt-get install -y python3-pip && "
+            "pip3 install --user flask jsonpickle pillow requests grpcio grpcio-tools"
+        )
+
+        # Remote lab directory name (same basename)
+        remote_lab = f"~/{os.path.basename(lab_dir)}"
+        protoc_cmd = (
+            f"cd {remote_lab} && "
+            "python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. grpc_service.proto"
+        )
+
+        for vm in vms:
+            print(f"\n--- Installing deps on {vm.name} ({vm.zone}) ---")
+            ssh(vm.name, vm.zone, install_cmd)
+            print(f"--- Running protoc on {vm.name} ({vm.zone}) ---")
+            ssh(vm.name, vm.zone, protoc_cmd)
 
     print("\n=== Instances (name, zone, internal/external IP, tags) ===")
     run(

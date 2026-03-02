@@ -4,7 +4,9 @@ SHELL := /bin/bash
 
 PY := python3
 
-# ===================== VM CONFIG (from your instance list) =====================
+# The purpose of this Makefile is to run the REST and grpc programs and 
+# output timing files for local, samezone, different zone
+# ===================== VM CONFIG =====================
 PROJECT ?= lab6-488919
 DIR ?= ~/lab6-rest-vs-grpc
 
@@ -37,6 +39,8 @@ GRPC_PORT   := 50051
 REST_MD := SOLUTION-rest.md
 GRPC_MD := SOLUTION-grpc.md
 
+# Per the lab instructions complete 1000 reps for local and same
+# server and complete 100 reps for different region
 # Reps
 REPS_ADD  ?= 1000
 REPS_IMG  ?= 1000
@@ -94,8 +98,10 @@ define stop_grpc_on
 	$(call ssh,$(1),$(2),"'pkill -f \"$(GRPC_SERVER)\" 2>/dev/null || true'")
 endef
 
-# Run client benchmarks on a VM and save TSV there:
-# TSV format: method<TAB>ms
+# Run client benchmarks on a VM and save Tab-Separated Values (TSV) there:
+# TSV is a plain text format where each line is a record and each field is separated
+# by a tab character (\t)
+
 define run_rest_tsv_on
 	$(call ssh,$(1),$(2),"'cd $(DIR) && \
 	  ADD_OUT=\"$$( $(PY) $(REST_CLIENT) $(3) add $(REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \

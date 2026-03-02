@@ -74,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser(description="Delete lab6 VMs + firewall rules")
     parser.add_argument("--project", required=True, help="GCP project id")
     parser.add_argument("--zone1", default="us-central1-a")
-    parser.add_argument("--zone2", default="us-east1-b")
+    parser.add_argument("--zone2", default="europe-west3-a")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
 
     args = parser.parse_args()
@@ -85,8 +85,8 @@ def main():
         ("lab6-local", args.zone1),
         ("lab6-samezone-server", args.zone1),
         ("lab6-samezone-client", args.zone1),
-        ("lab6-diffregion-server", args.zone1),
-        ("lab6-diffregion-client", args.zone2),
+        ("lab6-diffregion-server", args.zone2),
+        ("lab6-diffregion-client", args.zone1),
     ]
 
     firewall_rules = [
