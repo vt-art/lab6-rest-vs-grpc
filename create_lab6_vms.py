@@ -235,30 +235,31 @@ def main() -> int:
 
         # Install dependencies and run protoc on each VM
 
-        # Use a fixed remote directory name to match your Makefile expectations
         remote_lab = "$HOME/lab6-rest-vs-grpc"
+        venv_dir = f"{remote_lab}/.venv"
 
-        # Install deps using python -m pip (more reliable than pip3)
         install_cmd = (
             "set -euo pipefail; "
             "sudo apt-get update -y; "
-            "sudo apt-get install -y python3-pip; "
-            "python3 -m pip install --user --upgrade pip setuptools wheel; "
-            # Install everything needed for REST + gRPC clients/servers
-            "python3 -m pip install --user flask jsonpickle pillow requests grpcio grpcio-tools"
+            # venv module is in python3-venv
+            "sudo apt-get install -y python3-venv python3-pip; "
+            f"cd {remote_lab}; "
+            # create venv if missing
+            f"python3 -m venv {venv_dir}; "
+            # upgrade pip inside venv + install deps inside venv
+            f"{venv_dir}/bin/python -m pip install --upgrade pip setuptools wheel; "
+            f"{venv_dir}/bin/python -m pip install flask jsonpickle pillow requests grpcio grpcio-tools"
         )
 
-        # Verify imports right away; if this fails, the script should fail
         verify_cmd = (
             "set -euo pipefail; "
-            "python3 -c \"import flask, jsonpickle, requests; from PIL import Image; import grpc; import grpc_tools; print('deps ok')\""
+            f"{venv_dir}/bin/python -c \"import flask, jsonpickle, requests; from PIL import Image; import grpc; import grpc_tools; print('deps ok')\""
         )
 
-        # Generate protobuf stubs (also verify grpc_tools is available)
         protoc_cmd = (
-            f"set -euo pipefail; "
+            "set -euo pipefail; "
             f"cd {remote_lab}; "
-            "python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. grpc_service.proto; "
+            f"{venv_dir}/bin/python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. grpc_service.proto; "
             "test -f grpc_service_pb2.py -a -f grpc_service_pb2_grpc.py"
         )
 
