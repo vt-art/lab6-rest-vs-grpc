@@ -8,7 +8,8 @@ REMOTE_PY := $$HOME/lab6-rest-vs-grpc/.venv/bin/python
 # output timing files for local, samezone, different zone
 # ===================== VM CONFIG =====================
 PROJECT ?= lab6-488919
-DIR ?= $$HOME/lab6-rest-vs-grpc
+REMOTE_HOME := /home/vath9383
+DIR ?= $(REMOTE_HOME)/lab6-rest-vs-grpc
 
 ZONE_CENTRAL := us-central1-a
 ZONE_EU      := europe-west3-a
@@ -187,7 +188,7 @@ rest3: check servers-up
 	$(call run_rest_tsv_on,$(VM_LOCAL),$(ZONE_CENTRAL),localhost,.rest_local.tsv)
 	@# Same-zone column: run client on samezone-client against samezone-server internal IP
 	$(call run_rest_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.rest_same.tsv)
-	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
+	@# Diff-region column: run client on diffregion-client (central) against diffregion-server internal IP (Frankfurt)
 	$(call run_rest_tsv_on_eu,$(VM_DIFF_CLIENT),$(ZONE_CENTRAL),$(IP_DIFF_SERVER),.rest_diff.tsv)
 
 	@echo "Writing $(REST_MD)..."
@@ -214,7 +215,7 @@ grpc3: check servers-up
 	$(call run_grpc_tsv_on,$(VM_LOCAL),$(ZONE_CENTRAL),localhost,.grpc_local.tsv)
 	@# Same-zone column: run client on samezone-client against samezone-server internal IP
 	$(call run_grpc_tsv_on,$(VM_SAME_CLIENT),$(ZONE_CENTRAL),$(IP_SAME_SERVER),.grpc_same.tsv)
-	@# Diff-region column: run client on diffregion-client (east) against diffregion-server internal IP (central)
+	@# Diff-region column: run client on diffregion-client (central) against diffregion-server internal IP (Frankfurt)
 	$(call run_grpc_tsv_on_eu,$(VM_DIFF_CLIENT),$(ZONE_CENTRAL),$(IP_DIFF_SERVER),.grpc_diff.tsv)
 
 	@echo "Writing $(GRPC_MD)..."
