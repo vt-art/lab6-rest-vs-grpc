@@ -74,7 +74,7 @@ check:
 
 # ssh helper: $(call ssh,VM,ZONE,'command...')
 define ssh
-	gcloud compute ssh $(1) --zone $(2) --quiet --command $(3)
+	gcloud compute ssh $(1) --zone $(2) --quiet --command '$(3)'
 endef
 
 # scp helper: $(call scp_from,VM,ZONE,remote_path,local_path)
@@ -84,19 +84,19 @@ endef
 
 # Start/stop servers on a VM without PID files
 define start_rest_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(REMOTE_PY) $(REST_SERVER) > .rest_server.log 2>&1 < /dev/null &'")
+	$(call ssh,$(1),$(2),cd $(DIR) && nohup $(REMOTE_PY) $(REST_SERVER) > .rest_server.log 2>&1 < /dev/null &)
 endef
 
 define start_grpc_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && nohup $(REMOTE_PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 < /dev/null &'")
+	$(call ssh,$(1),$(2),cd $(DIR) && nohup $(REMOTE_PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 < /dev/null &)
 endef
 
 define stop_rest_on
-	$(call ssh,$(1),$(2),"'pkill -f \"$(REST_SERVER)\" 2>/dev/null || true'")
+	$(call ssh,$(1),$(2),pkill -f "$(REST_SERVER)" 2>/dev/null || true)
 endef
 
 define stop_grpc_on
-	$(call ssh,$(1),$(2),"'pkill -f \"$(GRPC_SERVER)\" 2>/dev/null || true'")
+	$(call ssh,$(1),$(2),pkill -f "$(GRPC_SERVER)" 2>/dev/null || true)
 endef
 
 # Run client benchmarks on a VM and save Tab-Separated Values (TSV) there:
@@ -104,39 +104,39 @@ endef
 # by a tab character (\t)
 
 define run_rest_tsv_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && \
-	  ADD_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) add $(REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
-	  RAW_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) rawImage $(REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
-	  DOT_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) dotProduct $(REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
-	  JSON_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) jsonImage $(REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
-	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+	$(call ssh,$(1),$(2),cd $(DIR) && \
+	  ADD_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) add $(REPS_ADD) )"; ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
+	  RAW_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) rawImage $(REPS_IMG) )"; RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
+	  DOT_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) dotProduct $(REPS_DOT) )"; DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
+	  JSON_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) jsonImage $(REPS_JSON) )"; JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
+	  printf "add\t%s\nrawimg\t%s\ndotproduct\t%s\njsonimg\t%s\n" "$$ADD_MS" "$$RAW_MS" "$$DOT_MS" "$$JSON_MS" > $(4))
 endef
 
 define run_grpc_tsv_on
-	$(call ssh,$(1),$(2),"'cd $(DIR) && \
-	  ADD_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) add $(REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
-	  RAW_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) rawImage $(REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
-	  DOT_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) dotProduct $(REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
-	  JSON_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) jsonImage $(REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
-	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+	$(call ssh,$(1),$(2),cd $(DIR) && \
+	  ADD_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) add $(REPS_ADD) )"; ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
+	  RAW_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) rawImage $(REPS_IMG) )"; RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
+	  DOT_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) dotProduct $(REPS_DOT) )"; DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
+	  JSON_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) jsonImage $(REPS_JSON) )"; JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
+	  printf "add\t%s\nrawimg\t%s\ndotproduct\t%s\njsonimg\t%s\n" "$$ADD_MS" "$$RAW_MS" "$$DOT_MS" "$$JSON_MS" > $(4))
 endef
 
 define run_rest_tsv_on_eu
-	$(call ssh,$(1),$(2),"'cd $(DIR) && \
-	  ADD_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) add $(EU_REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
-	  RAW_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) rawImage $(EU_REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
-	  DOT_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
-	  JSON_OUT=\"$$( $(REMOTE_PY) $(REST_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
-	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+	$(call ssh,$(1),$(2),cd $(DIR) && \
+	  ADD_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) add $(EU_REPS_ADD) )"; ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
+	  RAW_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) rawImage $(EU_REPS_IMG) )"; RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
+	  DOT_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )"; DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
+	  JSON_OUT="$$( $(REMOTE_PY) $(REST_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )"; JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
+	  printf "add\t%s\nrawimg\t%s\ndotproduct\t%s\njsonimg\t%s\n" "$$ADD_MS" "$$RAW_MS" "$$DOT_MS" "$$JSON_MS" > $(4))
 endef
 
 define run_grpc_tsv_on_eu
-	$(call ssh,$(1),$(2),"'cd $(DIR) && \
-	  ADD_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) add $(EU_REPS_ADD) )\"; ADD_MS=\"$$( echo \"$$ADD_OUT\" | $(extract_ms) )\"; \
-	  RAW_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) rawImage $(EU_REPS_IMG) )\"; RAW_MS=\"$$( echo \"$$RAW_OUT\" | $(extract_ms) )\"; \
-	  DOT_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )\"; DOT_MS=\"$$( echo \"$$DOT_OUT\" | $(extract_ms) )\"; \
-	  JSON_OUT=\"$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )\"; JSON_MS=\"$$( echo \"$$JSON_OUT\" | $(extract_ms) )\"; \
-	  printf \"add\\t%s\\nrawimg\\t%s\\ndotproduct\\t%s\\njsonimg\\t%s\\n\" \"$$ADD_MS\" \"$$RAW_MS\" \"$$DOT_MS\" \"$$JSON_MS\" > $(4)'")
+	$(call ssh,$(1),$(2),cd $(DIR) && \
+	  ADD_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) add $(EU_REPS_ADD) )"; ADD_MS="$$( echo "$$ADD_OUT" | $(extract_ms) )"; \
+	  RAW_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) rawImage $(EU_REPS_IMG) )"; RAW_MS="$$( echo "$$RAW_OUT" | $(extract_ms) )"; \
+	  DOT_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) dotProduct $(EU_REPS_DOT) )"; DOT_MS="$$( echo "$$DOT_OUT" | $(extract_ms) )"; \
+	  JSON_OUT="$$( $(REMOTE_PY) $(GRPC_CLIENT) $(3) jsonImage $(EU_REPS_JSON) )"; JSON_MS="$$( echo "$$JSON_OUT" | $(extract_ms) )"; \
+	  printf "add\t%s\nrawimg\t%s\ndotproduct\t%s\njsonimg\t%s\n" "$$ADD_MS" "$$RAW_MS" "$$DOT_MS" "$$JSON_MS" > $(4))
 endef
 
 # ===================== LOCAL TARGETS  =====================
