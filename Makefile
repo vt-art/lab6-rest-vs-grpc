@@ -84,11 +84,11 @@ endef
 
 # Start/stop servers on a VM without PID files
 define start_rest_on
-	$(call ssh,$(1),$(2),cd $(DIR) && nohup $(REMOTE_PY) $(REST_SERVER) > .rest_server.log 2>&1 < /dev/null &)
+	$(call ssh,$(1),$(2),bash -lc "cd $(DIR) && nohup $(REMOTE_PY) $(REST_SERVER) > .rest_server.log 2>&1 < /dev/null & disown")
 endef
 
 define start_grpc_on
-	$(call ssh,$(1),$(2),cd $(DIR) && nohup $(REMOTE_PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 < /dev/null &)
+	$(call ssh,$(1),$(2),bash -lc "cd $(DIR) && nohup $(REMOTE_PY) $(GRPC_SERVER) > .grpc_server.log 2>&1 < /dev/null & disown")
 endef
 
 define stop_rest_on
