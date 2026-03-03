@@ -74,7 +74,7 @@ check:
 
 # ssh helper: $(call ssh,VM,ZONE,'command...')
 define ssh
-	gcloud compute ssh $(1) --zone $(2) --quiet --command "$(3)"
+	gcloud compute ssh $(1) --zone $(2) --quiet --command '$(3)'
 endef
 
 # scp helper: $(call scp_from,VM,ZONE,remote_path,local_path)
